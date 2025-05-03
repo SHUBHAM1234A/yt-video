@@ -127,7 +127,7 @@ class Logger:
 
 base_opts = {
     'format': 'bestvideo+bestaudio/best',
-    'outtmpl': os.path.join(download_dir, '%(id)s.%(ext)s'),
+    'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
     'progress_hooks': [progress_hook],
     'quiet': True,
     'progress_with_newline': False,
