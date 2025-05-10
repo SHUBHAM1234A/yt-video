@@ -10,6 +10,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def safe_filename(name): return re.sub(r'[\\/*?:"<>|]', "_", name)
 
+success_count = 0
+fail_count = 0
+
 def check_ffmpeg():
     if not shutil.which("ffmpeg"):
         print("❌ ffmpeg not found. Please install it and make sure it's in your 'PATH'.\n")
@@ -56,8 +59,21 @@ if state == 1:
     playlist_url = input("🎵 Playlist URL: ").strip()
     with YoutubeDL({'extract_flat': True, 'skip_download': True, 'quiet': True, 'cookiefile': 'youtube_cookies.txt'}) as ydl:
         info_dict = ydl.extract_info(playlist_url, download=False)
-        print(f"✅ Playlist: {info_dict['title']} ({len(info_dict['entries'])} videos)")
-        video_urls = [f"https://www.youtube.com/watch?v={entry['id']}" for entry in info_dict['entries']]
+        total_videos = len(info_dict['entries'])
+        print(f"✅ Playlist: {info_dict['title']} ({total_videos} videos)")
+
+        if total_videos > 50:
+            try:
+                count = int(input(f"🔢 This playlist has {total_videos} videos. How many do you want to download? [1-{total_videos}]: "))
+                if not (1 <= count <= total_videos):
+                    raise ValueError
+            except ValueError:
+                print(f"⚠️ Invalid input. Downloading all {total_videos} videos.")
+                count = total_videos
+        else:
+            count = total_videos
+
+        video_urls = [f"https://www.youtube.com/watch?v={entry['id']}" for entry in info_dict['entries'][:count]]
 elif state == 2:
     print('🔗 Enter video URLs one by one (type "done" to finish):')
     while True:
@@ -104,6 +120,20 @@ if use_parallel:
 skip_downloaded = input("🧠 Skip videos already downloaded in the past? (y/n): ").strip().lower() == "y"
 downloaded_urls = {entry['url'] for entry in download_history if entry['status'] == 'success'}
 
+if not audio_only: 
+    quality_inp = int(input("✨ Video Quality:\n1. Best Possible (including 8k, 4k, etc.)\n2. 1080p\n3. 720p\n4. 480p\n5. 360p\n\nChoice: "))
+    quality = {
+        1: "",
+        2: "[height=1080]",
+        3: "[height=720]",
+        4: "[height=480]",
+        5: "[height=360]"
+    }.get(quality_inp, "")
+    if (not 1 <= quality_inp <= 5) or quality_inp == 1:
+        print("✨ Quality set to: Best Possible")
+    else:
+        print(f"✨ Quality set to: {quality[8:-1]}p")
+
 if skip_downloaded:
     before = len(video_urls)
     video_urls = [url for url in video_urls if url not in downloaded_urls]
@@ -126,7 +156,7 @@ class Logger:
         print(f"❌ {msg}")
 
 base_opts = {
-    'format': 'bestvideo+bestaudio/best',
+    'format': f'bestvideo{quality}+bestaudio/best',
     'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
     'progress_hooks': [progress_hook],
     'quiet': True,
@@ -146,6 +176,9 @@ if audio_only:
     })
 
 def download_url(url):
+    global success_count
+    global fail_count
+
     print(f"\n🚀 Downloading: {url}")
 
     result = {
@@ -171,10 +204,13 @@ def download_url(url):
             if os.path.exists(actual_file) and actual_file != filename:
                 os.rename(actual_file, filename)
             result["status"] = "success"
+            success_count += 1
     except DownloadError as e:
         print(f"❌ Download error for {url}: {e}")
+        fail_count += 1
     except Exception as e:
         print(f"⚠️ Unexpected error for {url}: {e}")
+        fail_count += 1
     download_history.append(result)
 
 start = datetime.now()
@@ -190,9 +226,17 @@ else:
         download_url(url)        
 
 end = datetime.now()
-
-print(f"\n✅ All downloads completed in {int((end - start).total_seconds())} seconds.")
+t = "{:.2f}".format((end - start).total_seconds())
+print(f"\n✅ All downloads completed in {t} seconds.")
 
 with open(history_file, "w") as f:
     json.dump(download_history, f, indent=2)
 print(f"🗃️  History saved to {history_file}")
+
+# success_count = sum(1 for entry in download_history if entry['status'] == 'success')
+# fail_count = sum(1 for entry in download_history if entry['status'] != 'success')
+
+print(f"\n📊 Summary:")
+print(f"📺 Total videos: {success_count + fail_count}")
+print(f"✅ Successful downloads: {success_count}")
+print(f"❌ Failed downloads: {fail_count}")
