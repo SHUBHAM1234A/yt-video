@@ -3,15 +3,20 @@ import sys
 import shutil
 import json
 import re
+from utils.menu import Menu
 from datetime import datetime
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def safe_filename(name): return re.sub(r'[\\/*?:"<>|]', "_", name)
+def highlight_text(text, color_code): return f"\033[{color_code}m{text}\033[0m"
+def cursor(remove:bool): print("\033[?25l", end='') if remove else print("\033[?25h", end='')
 
 success_count = 0
 fail_count = 0
+
+os.system('cls' if os.name == 'nt' else 'clear')
 
 def check_ffmpeg():
     if not shutil.which("ffmpeg"):
@@ -24,9 +29,9 @@ print("🎬 Welcome to YouTube Video Downloader!\n")
 check_ffmpeg()
 
 if not os.path.exists("youtube_cookies.txt"):
-    print("❌ Cookie file 'youtube_cookies.txt' not found. Please export it from your browser.\n")
+    print("❌ Cookie file 'youtube_cookies.txt' not found.\n")
     print("➡️  Instuctions to get the cookie file:\n\n1. Install \"Get cookies.txt LOCALLY\" Extension in your browser.\n2. Go to youtube.com while logged in and click the extension and save the cookies file.\n3. Save it as \"youtube_cookies.txt\" in the same folder as this script.")
-    print("\n⚠️  By using your account with yt-dlp, you run the risk of it being banned (temporarily or permanently). Be mindful with the request rate and amount of downloads you make with an account. Use it only when necessary, or consider using a throwaway account.")
+    print(f"\n⚠️  {highlight_text('WARNING', 33)}: By using your account, you run the risk of it being banned (temporarily or permanently). Be mindful with the request rate and amount of downloads you make with an account. Use it only when necessary, or consider using a throwaway account.")
     sys.exit(1)
 
 history_file = "download_history.json"
@@ -45,17 +50,16 @@ if os.path.exists(history_file):
 else:
     download_history = []
 
-try:
-    state = int(input("Choose a number:\n1. Download a Playlist\n2. Download separate video(s)\n3. Clear Download history\nChoice: "))
-    if state not in [1, 2, 3]:
-        raise ValueError
-except Exception:
-    print("❌ Invalid input. Please enter 1, 2 or 3.")
-    sys.exit(1)
+cursor(True)
+state = Menu(
+        "Choose an option:", 
+        ["1. Download a Playlist", "2. Download separate video(s)", "3. Clear Download history"]
+    ).handle_input()
+cursor(False)
 
 video_urls = []
 
-if state == 1:
+if state == 0:
     playlist_url = input("🎵 Playlist URL: ").strip()
     with YoutubeDL({'extract_flat': True, 'skip_download': True, 'quiet': True, 'cookiefile': 'youtube_cookies.txt'}) as ydl:
         info_dict = ydl.extract_info(playlist_url, download=False)
@@ -74,7 +78,7 @@ if state == 1:
             count = total_videos
 
         video_urls = [f"https://www.youtube.com/watch?v={entry['id']}" for entry in info_dict['entries'][:count]]
-elif state == 2:
+elif state == 1:
     print('🔗 Enter video URLs one by one (type "done" to finish):')
     while True:
         number = len(video_urls) + 1
@@ -86,14 +90,14 @@ elif state == 2:
             info = ydl.extract_info(sep_url, download=False)
             print(f"Title: {info['title']}")
         video_urls.append(sep_url)
-elif state == 3:
+elif state == 2:
     with open(history_file, "w") as f:
         json.dump([], f, indent=2)
     print("✅  All History Cleared.")
     sys.exit(0)
 else: sys.exit(0)
 
-download_dir = input("📁 Folder name to save videos: ").strip()
+download_dir = input("\n📁 Folder name to save videos: ").strip()
 os.makedirs(download_dir, exist_ok=True)
 
 audio_only = input("🎧 Do you want to download audio (MP3) instead of video? (y/n): ").strip().lower() == "y"
@@ -103,6 +107,8 @@ use_parallel = False
 if len(video_urls) > 1:
     use_parallel = input("⚡ Do you want to enable parallel downloads? (y/n): ").strip().lower() == "y"
 max_workers = 1
+
+skip_downloaded = input("🧠 Skip videos already downloaded in the past? (y/n): ").strip().lower() == "y"
 
 if use_parallel:
     suggested_workers = min(os.cpu_count(), 6)
@@ -117,20 +123,24 @@ if use_parallel:
         print("Invalid input. Using recommended value.")
         max_workers = suggested_workers
 
-skip_downloaded = input("🧠 Skip videos already downloaded in the past? (y/n): ").strip().lower() == "y"
 downloaded_urls = {entry['url'] for entry in download_history if entry['status'] == 'success'}
 
-if not audio_only: 
-    quality_inp = int(input("✨ Video Quality:\n1. Best Possible (including 8k, 4k, etc.)\n2. 1080p\n3. 720p\n4. 480p\n5. 360p\n\nChoice: "))
+if not audio_only:
+    cursor(True)
+    quality_menu = Menu(
+        "✨ Select a video quality:",
+        ["1. Best Possible (including 8k, 4k, etc.)", "2. 1080p", "3. 720p", "4. 480p", "5. 360p"]
+    ).handle_input()
+    cursor(False)
     quality = {
-        1: "",
-        2: "[height=1080]",
-        3: "[height=720]",
-        4: "[height=480]",
-        5: "[height=360]"
-    }.get(quality_inp, "")
-    if (not 1 <= quality_inp <= 5) or quality_inp == 1:
-        print("✨ Quality set to: Best Possible")
+        0: "",
+        1: "[height=1080]",
+        2: "[height=720]",
+        3: "[height=480]",
+        4: "[height=360]"
+    }.get(quality_menu, "")
+    if quality_menu == 0:
+        print(f"✨ Quality set to: Best Possible")
     else:
         print(f"✨ Quality set to: {quality[8:-1]}p")
 
@@ -233,10 +243,8 @@ with open(history_file, "w") as f:
     json.dump(download_history, f, indent=2)
 print(f"🗃️  History saved to {history_file}")
 
-# success_count = sum(1 for entry in download_history if entry['status'] == 'success')
-# fail_count = sum(1 for entry in download_history if entry['status'] != 'success')
-
 print(f"\n📊 Summary:")
 print(f"📺 Total videos: {success_count + fail_count}")
 print(f"✅ Successful downloads: {success_count}")
 print(f"❌ Failed downloads: {fail_count}")
+cursor(False)
